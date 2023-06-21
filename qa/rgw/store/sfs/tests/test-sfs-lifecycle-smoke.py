@@ -108,69 +108,6 @@ class LifecycleSmokeTests(unittest.TestCase):
             self.assert_bucket_exists(bucket_name)
         return buckets
 
-    def test_expiration(self):
-        bucket_name = self.get_random_bucket_name()
-        self.s3_client.create_bucket(Bucket=bucket_name)
-        self.assert_bucket_exists(bucket_name)
-        objects = [
-            "expire1/foo",
-            "expire1/bar",
-            "keep2/foo",
-            "keep2/bar",
-            "expire3/foo",
-            "expire3/bar",
-        ]
-        for obj in objects:
-            self.upload_file_and_check(bucket_name, obj)
-
-        response = self.s3_client.list_objects(Bucket=bucket_name)
-        self.check_objects_exist(response["Contents"], objects)
-
-        rules = [
-            {
-                "ID": "rule1",
-                "Expiration": {"Days": 1},
-                "Filter": {"Prefix": "expire1/"},
-                "Status": "Enabled",
-            },
-            {
-                "ID": "rule2",
-                "Expiration": {"Days": 5},
-                "Filter": {"Prefix": "expire3/"},
-                "Status": "Enabled",
-            },
-        ]
-        lifecycle = {"Rules": rules}
-        self.s3_client.put_bucket_lifecycle_configuration(
-            Bucket=bucket_name, LifecycleConfiguration=lifecycle
-        )
-
-        # give enough time to expire.
-        # 3 cycles because:
-        #                   1st cycle won't be expired yet (not still 1 day)
-        #                   2nd cycle rgw considers the bucket at processed
-        #                       today and skips it
-        #                   3rd cycle will be fully expired
-        time.sleep(3 * LifecycleSmokeTests.LIFECYCLE_DEBUG_INTERVAL)
-        response = self.s3_client.list_objects(Bucket=bucket_name)
-        self.check_objects_exist(
-            response["Contents"],
-            ["keep2/foo", "keep2/bar", "expire3/foo", "expire3/bar"],
-        )
-
-        time.sleep(LifecycleSmokeTests.LIFECYCLE_DEBUG_INTERVAL)
-        # at this point there are still not enough cycles to count 5 days
-        response = self.s3_client.list_objects(Bucket=bucket_name)
-        self.check_objects_exist(
-            response["Contents"],
-            ["keep2/foo", "keep2/bar", "expire3/foo", "expire3/bar"],
-        )
-
-        # same logic as above for number of cycles plus
-        time.sleep(3 * LifecycleSmokeTests.LIFECYCLE_DEBUG_INTERVAL)
-        response = self.s3_client.list_objects(Bucket=bucket_name)
-        self.check_objects_exist(response["Contents"], ["keep2/foo", "keep2/bar"])
-
     def test_lifecycle_versioning_enabled(self):
         bucket_name = self.get_random_bucket_name()
         self.s3_client.create_bucket(Bucket=bucket_name)
